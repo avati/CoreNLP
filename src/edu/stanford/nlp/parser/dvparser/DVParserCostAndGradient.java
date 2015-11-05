@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.ling.Label;
 import edu.stanford.nlp.math.ArrayMath;

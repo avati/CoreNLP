@@ -11,7 +11,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.io.IOUtils;
 import edu.stanford.nlp.ling.CoreAnnotations;

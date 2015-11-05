@@ -12,7 +12,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.neural.Embedding;
 import edu.stanford.nlp.neural.NeuralUtils;

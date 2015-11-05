@@ -12,7 +12,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.io.FileSystem;
 import edu.stanford.nlp.ling.HasWord;

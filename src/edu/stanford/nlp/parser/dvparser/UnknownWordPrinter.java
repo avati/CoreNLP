@@ -4,7 +4,7 @@ import java.io.PrintWriter;
 import java.util.List;
 import java.util.TreeSet;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.ling.Label;
 import edu.stanford.nlp.parser.metrics.Eval;

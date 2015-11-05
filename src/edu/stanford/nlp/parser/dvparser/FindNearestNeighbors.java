@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.ling.Word;
 import edu.stanford.nlp.parser.common.ArgUtils;

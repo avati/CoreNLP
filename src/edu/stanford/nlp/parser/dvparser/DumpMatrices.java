@@ -4,7 +4,7 @@ import edu.stanford.nlp.io.FileSystem;
 import edu.stanford.nlp.parser.lexparser.LexicalizedParser;
 import edu.stanford.nlp.util.TwoDimensionalMap;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import java.io.BufferedWriter;
 import java.io.File;

@@ -3,7 +3,7 @@ package edu.stanford.nlp.trees;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 
-import org.ejml.simple.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 /**
  * A tree combined with a map from subtree to SimpleMatrix vectors.

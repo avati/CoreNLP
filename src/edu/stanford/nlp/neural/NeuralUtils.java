@@ -9,8 +9,8 @@ import java.util.List;
 import java.util.Random;
 
 import java.util.function.Predicate;
-import org.ejml.simple.SimpleMatrix;
 import org.ejml.ops.MatrixIO;
+import edu.stanford.nlp.linalg.SimpleMatrix;
 
 import edu.stanford.nlp.io.IOUtils;
 import edu.stanford.nlp.util.CollectionUtils;
