@@ -71,6 +71,8 @@ public class RNNTrainOptions implements Serializable {
 
   public int nThreads = 1;
 
+  public boolean asyncMult = false;
+
   @Override
   public String toString() {
     StringBuilder result = new StringBuilder();
@@ -160,6 +162,9 @@ public class RNNTrainOptions implements Serializable {
     } else if (args[argIndex].equalsIgnoreCase("-nThreads") || args[argIndex].equalsIgnoreCase("-numThreads")) {
       nThreads = Integer.parseInt(args[argIndex + 1]);
       return argIndex + 2;
+    } else if (args[argIndex].equalsIgnoreCase("-asyncMult")) {
+      asyncMult = true;
+      return argIndex + 1;
     } else {
       return argIndex;
     }

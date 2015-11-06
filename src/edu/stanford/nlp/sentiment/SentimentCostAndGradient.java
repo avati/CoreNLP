@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Set;
 
 import edu.stanford.nlp.linalg.SimpleMatrix;
+import edu.stanford.nlp.linalg.SimpleMatrixNotifier;
 
 import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.neural.NeuralUtils;
@@ -206,6 +207,10 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 
   private ModelDerivatives scoreDerivatives(List<Tree> trainingBatch) {
     // "final" makes this as fast as having separate maps declared in this function
+    if (model.op.trainOptions.asyncMult) {
+	return scoreDerivativesAsync(trainingBatch);
+    }
+
     final ModelDerivatives derivatives = new ModelDerivatives(model);
 
     List<Tree> forwardPropTrees = Generics.newArrayList();
@@ -536,4 +541,123 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     label.set(RNNCoreAnnotations.NodeVector.class, nodeVector);
   } // end forwardPropagateTree
 
+  private void recurseUp(Tree node, Tree root) {
+    Tree parent = node.parent(root);
+    if (parent == null) {
+	synchronized(node) {
+	    node.notifyAll();
+	}
+	/* done -- TBD: start backprop */
+	return;
+    }
+
+    Tree leftChild = parent.children()[0];
+    Tree rightChild = parent.children()[1];
+
+    SimpleMatrix leftVector = RNNCoreAnnotations.getNodeVector(leftChild);
+    SimpleMatrix rightVector = RNNCoreAnnotations.getNodeVector(rightChild);
+
+    if (leftVector == null || rightVector == null)
+	// wait till the other child finishes up
+	return;
+
+    SimpleMatrix childrenVector = NeuralUtils.concatenateWithBias(leftVector, rightVector);
+    String leftCategory = leftChild.label().value();
+    String rightCategory = rightChild.label().value();
+    SimpleMatrix W = model.getBinaryTransform(leftCategory, rightCategory);
+    final SimpleMatrix classification = model.getBinaryClassification(leftCategory, rightCategory);
+
+    SimpleMatrix tensorOut = null;
+    if (model.op.useTensors) {
+	SimpleTensor tensor = model.getBinaryTensor(leftCategory, rightCategory);
+	SimpleMatrix tensorIn = NeuralUtils.concatenate(leftVector, rightVector);
+	tensorOut = tensor.bilinearProducts(tensorIn);
+    }
+
+    W.mult_async(childrenVector, tensorOut,
+		 (SimpleMatrix tanh_input) -> {
+		     final SimpleMatrix nodeVector = NeuralUtils.elementwiseApplyTanh(tanh_input);
+
+		     classification.mult_async(NeuralUtils.concatenateWithBias(nodeVector),
+					       (SimpleMatrix result) -> {
+						   SimpleMatrix predictions = NeuralUtils.softmax(result);
+						   int index = getPredictedClass(predictions);
+						   if (!(node.label() instanceof CoreLabel)) {
+						       throw new AssertionError("Expected CoreLabels in the nodes");
+						   }
+						   CoreLabel label = (CoreLabel) node.label();
+						   label.set(RNNCoreAnnotations.Predictions.class, predictions);
+						   label.set(RNNCoreAnnotations.PredictedClass.class, index);
+						   label.set(RNNCoreAnnotations.NodeVector.class, nodeVector);
+						   recurseUp(node, root);
+					       });
+		 });
+  }
+
+  private void processPreTerminals(Tree node, Tree root) {
+      SimpleMatrix classification = null;
+
+      if (node.isLeaf()) {
+	  throw new AssertionError("We should not have reached leaves in forwardPropagate");
+      }
+
+      if (!node.isPreTerminal()) {
+	  processPreTerminals(node.children()[0], root);
+	  processPreTerminals(node.children()[1], root);
+	  return;
+      }
+
+      classification = model.getUnaryClassification(node.label().value());
+      String word = node.children()[0].label().value();
+      SimpleMatrix wordVector = model.getWordVector(word);
+      final SimpleMatrix nodeVector = NeuralUtils.elementwiseApplyTanh(wordVector);
+
+      classification.mult_async(NeuralUtils.concatenateWithBias(nodeVector),
+				(SimpleMatrix result) -> {
+				    SimpleMatrix predictions = NeuralUtils.softmax(result);
+				    int index = getPredictedClass(predictions);
+				    if (!(node.label() instanceof CoreLabel)) {
+					throw new AssertionError("Expected CoreLabels in the nodes");
+				    }
+				    CoreLabel label = (CoreLabel) node.label();
+				    label.set(RNNCoreAnnotations.Predictions.class, predictions);
+				    label.set(RNNCoreAnnotations.PredictedClass.class, index);
+				    label.set(RNNCoreAnnotations.NodeVector.class, nodeVector);
+				    recurseUp(node, root);
+				});
+  }
+
+  private ModelDerivatives scoreDerivativesAsync(List<Tree> trainingBatch) {
+    // "final" makes this as fast as having separate maps declared in this function
+    final ModelDerivatives derivatives = new ModelDerivatives(model);
+
+
+    List<Tree> forwardPropTrees = Generics.newArrayList();
+    for (Tree tree : trainingBatch) {
+      Tree trainingTree = tree.deepCopy();
+      // this will attach the error vectors and the node vectors
+      // to each node in the tree
+      processPreTerminals(trainingTree, trainingTree);
+      forwardPropTrees.add(trainingTree);
+    }
+
+    for (Tree tree : forwardPropTrees) {
+	// wait for the forward propagation to finish
+	synchronized(tree) {
+	    while (RNNCoreAnnotations.getNodeVector(tree) == null)
+		try {
+		    tree.wait();
+		} catch (InterruptedException e) {
+		    continue;
+		}
+	}
+    }
+
+    for (Tree tree : forwardPropTrees) {
+	backpropDerivativesAndError(tree, derivatives.binaryTD, derivatives.binaryCD, derivatives.binaryTensorTD, derivatives.unaryCD, derivatives.wordVectorD);
+	derivatives.error += sumError(tree);
+    }
+
+    return derivatives;
+  }
 }

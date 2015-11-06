@@ -130,5 +130,34 @@ public class SimpleMatrix {
     public org.ejml.data.DenseMatrix64F getMatrix() {
 	return inner.getMatrix();
     }
+
+    /* This is the asynchronous matrix multiplier. It
+       accepts the matrix B, and returns immediately.
+
+       Sometime eventually, the matrix B is actually
+       multiplied, and the result is notified
+       through the callback.
+    */
+
+    public void mult_async(SimpleMatrix b, SimpleMatrixNotifier n) {
+	mult_async(b, false, false, null, n);
+    }
+
+    public void mult_async(SimpleMatrix b, SimpleMatrix addToResult, SimpleMatrixNotifier n) {
+	mult_async(b, false, false, addToResult, n);
+    }
+
+    public void mult_async(SimpleMatrix b, boolean left_transpose, boolean right_transpose, SimpleMatrix addToResult, SimpleMatrixNotifier n) {
+	/* Batching to be done later */
+	SimpleMatrix left = left_transpose ? this.transpose() : this;
+	SimpleMatrix right = right_transpose ? b.transpose() : b;
+	SimpleMatrix prod = left.mult(right);
+	SimpleMatrix ans = addToResult == null ? prod : prod.plus(addToResult);
+	n.notify(ans);
+    }
+
+    public void churn() {
+	/* enough waiting for accumulation. churn on the batch so far */
+    }
 }
 
