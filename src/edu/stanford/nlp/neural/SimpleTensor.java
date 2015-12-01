@@ -3,6 +3,7 @@ package edu.stanford.nlp.neural;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.PriorityQueue;
 import java.util.NoSuchElementException;
 
 import edu.stanford.nlp.linalg.SimpleMatrix;
@@ -209,7 +210,25 @@ public class SimpleTensor implements Serializable {
     return out;
   }
 
+    class Multiplier {
+	public SimpleMatrix right;
+	public SimpleMatrixNotifier n;
+	public int depth;
+	public Multiplier(SimpleMatrix right, SimpleMatrixNotifier n, int depth) {
+	    this.right = right;
+	    this.n = n;
+	    this.depth = depth;
+	}
+	public Multiplier(SimpleMatrix right, SimpleMatrixNotifier n) {
+	    this(right, n, 0);
+	}
+    }
+
+    transient PriorityQueue<Multiplier> queue;
+
     public void bilinearProducts_async(SimpleMatrix in, SimpleMatrixNotifier n) {
+	if (queue == null)
+	    queue = new PriorityQueue<Multiplier>((Multiplier left, Multiplier right) -> left.depth - right.depth);
 	if (in.numCols() != 1) {
 	    throw new AssertionError("Expected a column vector");
 	}
@@ -219,17 +238,44 @@ public class SimpleTensor implements Serializable {
 	if (numRows != numCols) {
 	    throw new AssertionError("Can only perform this operation on a SimpleTensor with square slices");
 	}
-	SimpleMatrix inT = in.transpose();
-	SimpleMatrix out = new SimpleMatrix(numSlices, 1);
-	for (int slice = 0; slice < numSlices; ++slice) {
-	    double result = inT.mult(slices[slice]).mult(in).get(0);
-	    out.set(slice, result);
-	}
-	n.notify(out);
+
+	queue.add(new Multiplier(in, n));
     }
 
     public int churn() {
-	return 0;
+	if (queue == null || queue.size() == 0)
+	    return 0;
+
+	Multiplier[] requests = queue.toArray(new Multiplier[0]);
+	queue.clear();
+
+	int ncols = 0;
+	int nrows = requests[0].right.numRows();
+	for (Multiplier request : requests)
+	    ncols += request.right.numCols();
+
+	SimpleMatrix right = new SimpleMatrix(nrows, ncols);
+	int c = 0;
+	for (Multiplier request: requests) {
+	    right.insertIntoThis(0, c, request.right);
+	    c += request.right.numCols();
+	}
+
+	SimpleMatrix result = new SimpleMatrix(numSlices, ncols);
+	SimpleMatrix ones = new SimpleMatrix(1, numCols);
+	ones.set(1.0);
+	for (int i = 0; i < numSlices; i++) {
+	    result.insertIntoThis(i, 0, ones.mult(slices[i].mult(right).elementMult(right)));
+	}
+
+	c = 0;
+	for (Multiplier request: requests) {
+	    request.n.notify(result.extractVector(false, c));
+	    c += 1;
+	}
+
+	return requests.length;
+
     }
 
   /**

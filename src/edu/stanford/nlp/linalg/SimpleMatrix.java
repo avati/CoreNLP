@@ -2,6 +2,7 @@ package edu.stanford.nlp.linalg;
 
 import java.util.Random;
 import java.io.PrintStream;
+import java.util.PriorityQueue;
 
 /**
  * Contains a class that mimics org.ejml.simple.SimpleMatrix
@@ -12,7 +13,7 @@ import java.io.PrintStream;
  *
  * @author Anand Avati
  */
-public class SimpleMatrix {
+public class SimpleMatrix implements java.io.Serializable {
     org.ejml.simple.SimpleMatrix inner;
 
     public SimpleMatrix(int nrows, int ncols) {
@@ -103,6 +104,10 @@ public class SimpleMatrix {
 	return new SimpleMatrix(inner.extractMatrix(y0, y1, x0, x1));
     }
 
+    public SimpleMatrix extractVector(boolean extractRow, int elem) {
+	return new SimpleMatrix(inner.extractVector(extractRow, elem));
+    }
+
     public SimpleMatrix transpose() {
 	return new SimpleMatrix(inner.transpose());
     }
@@ -147,17 +152,76 @@ public class SimpleMatrix {
 	mult_async(b, false, false, addToResult, n);
     }
 
-    public void mult_async(SimpleMatrix b, boolean left_transpose, boolean right_transpose, SimpleMatrix addToResult, SimpleMatrixNotifier n) {
-	/* Batching to be done later */
-	SimpleMatrix left = left_transpose ? this.transpose() : this;
-	SimpleMatrix right = right_transpose ? b.transpose() : b;
-	SimpleMatrix prod = left.mult(right);
-	SimpleMatrix ans = addToResult == null ? prod : prod.plus(addToResult);
-	n.notify(ans);
+    class Multiplier {
+	public SimpleMatrix right;
+	public SimpleMatrix addToResult;
+	public SimpleMatrixNotifier n;
+	public int depth;
+	public Multiplier(SimpleMatrix right, SimpleMatrix addToResult, SimpleMatrixNotifier n, int depth) {
+	    this.right = right;
+	    this.addToResult = addToResult;
+	    this.n = n;
+	    this.depth = depth;
+	}
+	public Multiplier(SimpleMatrix right, SimpleMatrix addToResult, SimpleMatrixNotifier n) {
+	    this(right, addToResult, n, 0);
+	}
     }
 
-    public void churn() {
-	/* enough waiting for accumulation. churn on the batch so far */
+    transient PriorityQueue<Multiplier> queue;
+    transient PriorityQueue<Multiplier> transposeQueue;
+
+    public void mult_async(SimpleMatrix b, boolean leftTranspose, boolean rightTranspose, SimpleMatrix addToResult, SimpleMatrixNotifier n) {
+	/* Batching to be done later */
+	if (queue == null)
+	    queue = new PriorityQueue<Multiplier>((Multiplier left, Multiplier right) -> left.depth - right.depth);
+	if (transposeQueue == null)
+	    transposeQueue = new PriorityQueue<Multiplier>((Multiplier left, Multiplier right) -> left.depth - right.depth);
+
+	if (!leftTranspose)
+	    queue.add(new Multiplier(rightTranspose ? b.transpose() : b, addToResult, n));
+	else
+	    transposeQueue.add(new Multiplier(rightTranspose ? b.transpose() : b, addToResult, n));
+    }
+
+    public int churn(PriorityQueue<Multiplier> queue, SimpleMatrix left) {
+	if (queue.size() == 0)
+	    return 0;
+
+	Multiplier[] requests = queue.toArray(new Multiplier[0]);
+	queue.clear();
+
+	int ncols = 0;
+	int nrows = requests[0].right.numRows();
+	for (Multiplier request : requests)
+	    ncols += request.right.numCols();
+	
+	SimpleMatrix right = new SimpleMatrix(nrows, ncols);
+	int c = 0;
+	for (Multiplier request: requests) {
+	    right.insertIntoThis(0, c, request.right);
+	    c += request.right.numCols();
+	}
+
+	SimpleMatrix result = left.mult(right);
+
+	c = 0;
+	for (Multiplier request: requests) {
+	    SimpleMatrix ans = result.extractMatrix(0, result.numRows(), c, c + request.right.numCols());
+	    c += request.right.numCols();
+	    request.n.notify(request.addToResult == null ? ans : ans.plus(request.addToResult));
+	}
+
+	return requests.length;
+    }
+
+    public int churn() {
+	int cnt = 0;
+	if (queue != null)
+	    cnt += churn(queue, this);
+	if (transposeQueue != null)
+	    cnt += churn(transposeQueue, this.transpose());
+	return cnt;
     }
 }
 

@@ -16,6 +16,7 @@ import edu.stanford.nlp.trees.Tree;
 import edu.stanford.nlp.util.CollectionUtils;
 import edu.stanford.nlp.util.Generics;
 import edu.stanford.nlp.util.TwoDimensionalMap;
+import edu.stanford.nlp.util.TwoDimensionalMap.Entry;
 import edu.stanford.nlp.util.concurrent.MulticoreWrapper;
 import edu.stanford.nlp.util.concurrent.ThreadsafeProcessor;
 
@@ -574,13 +575,16 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 				      (SimpleMatrix tensorOut) -> {
 					  W.mult_async(childrenVector, tensorOut,
 						       (SimpleMatrix tanh_input) -> {
-							   fwdPropClassify(node, root, tanh_input, classification);
+							   fwdPropClassify(parent, root, tanh_input, classification);
 						       });
 				      });
 	return;
     }
 
-    W.mult_async(childrenVector, (SimpleMatrix tanh_input) -> fwdPropClassify(node, root, tanh_input, classification));
+	
+    W.mult_async(childrenVector, (SimpleMatrix tanh_input) -> {
+	    fwdPropClassify(parent, root, tanh_input, classification);
+	});
   }
 
   private void fwdPropClassify(Tree node, Tree root, SimpleMatrix input, SimpleMatrix classification) {
@@ -621,7 +625,24 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
       fwdPropClassify(node, root, wordVector, classification);
   }
 
-  private ModelDerivatives scoreDerivativesAsync(List<Tree> trainingBatch) {
+    private void churnAsyncOps() {
+	int cnt = 0;
+	do {
+	    cnt = 0;
+	    for (Entry<String, String, SimpleMatrix> e : model.binaryTransform) {
+		cnt += e.getValue().churn();
+	    }
+	    for (Entry<String, String, SimpleMatrix> e : model.binaryClassification) {
+		cnt += e.getValue().churn();
+	    }
+	    for (SimpleMatrix m : model.unaryClassification.values()) {
+		cnt += m.churn();
+	    }
+	    for (Entry<String, String, SimpleTensor> e : model.binaryTensors) cnt += e.getValue().churn();
+	} while (cnt > 0);
+    }
+
+    private ModelDerivatives scoreDerivativesAsync(List<Tree> trainingBatch) {
     // "final" makes this as fast as having separate maps declared in this function
     final ModelDerivatives derivatives = new ModelDerivatives(model);
 
@@ -635,6 +656,8 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
       forwardPropTrees.add(trainingTree);
     }
 
+    churnAsyncOps();
+    
     for (Tree tree : forwardPropTrees) {
 	// wait for the forward propagation to finish
 	synchronized(tree) {
@@ -646,6 +669,8 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 		}
 	}
     }
+
+    System.err.println("Starting backprop");
 
     for (Tree tree : forwardPropTrees) {
 	backpropDerivativesAndError(tree, derivatives.binaryTD, derivatives.binaryCD, derivatives.binaryTensorTD, derivatives.unaryCD, derivatives.wordVectorD);
