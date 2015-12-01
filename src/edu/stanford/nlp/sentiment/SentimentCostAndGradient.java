@@ -564,34 +564,41 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     SimpleMatrix childrenVector = NeuralUtils.concatenateWithBias(leftVector, rightVector);
     String leftCategory = leftChild.label().value();
     String rightCategory = rightChild.label().value();
-    SimpleMatrix W = model.getBinaryTransform(leftCategory, rightCategory);
+    final SimpleMatrix W = model.getBinaryTransform(leftCategory, rightCategory);
     final SimpleMatrix classification = model.getBinaryClassification(leftCategory, rightCategory);
 
-    SimpleMatrix tensorOut = null;
     if (model.op.useTensors) {
 	SimpleTensor tensor = model.getBinaryTensor(leftCategory, rightCategory);
 	SimpleMatrix tensorIn = NeuralUtils.concatenate(leftVector, rightVector);
-	tensorOut = tensor.bilinearProducts(tensorIn);
+	tensor.bilinearProducts_async(tensorIn,
+				      (SimpleMatrix tensorOut) -> {
+					  W.mult_async(childrenVector, tensorOut,
+						       (SimpleMatrix tanh_input) -> {
+							   fwdPropClassify(node, root, tanh_input, classification);
+						       });
+				      });
+	return;
     }
 
-    W.mult_async(childrenVector, tensorOut,
-		 (SimpleMatrix tanh_input) -> {
-		     final SimpleMatrix nodeVector = NeuralUtils.elementwiseApplyTanh(tanh_input);
+    W.mult_async(childrenVector, (SimpleMatrix tanh_input) -> fwdPropClassify(node, root, tanh_input, classification));
+  }
 
-		     classification.mult_async(NeuralUtils.concatenateWithBias(nodeVector),
-					       (SimpleMatrix result) -> {
-						   SimpleMatrix predictions = NeuralUtils.softmax(result);
-						   int index = getPredictedClass(predictions);
-						   if (!(node.label() instanceof CoreLabel)) {
-						       throw new AssertionError("Expected CoreLabels in the nodes");
-						   }
-						   CoreLabel label = (CoreLabel) node.label();
-						   label.set(RNNCoreAnnotations.Predictions.class, predictions);
-						   label.set(RNNCoreAnnotations.PredictedClass.class, index);
-						   label.set(RNNCoreAnnotations.NodeVector.class, nodeVector);
-						   recurseUp(node, root);
-					       });
-		 });
+  private void fwdPropClassify(Tree node, Tree root, SimpleMatrix input, SimpleMatrix classification) {
+      final SimpleMatrix nodeVector = NeuralUtils.elementwiseApplyTanh(input);
+
+      classification.mult_async(NeuralUtils.concatenateWithBias(nodeVector),
+				(SimpleMatrix result) -> {
+				    SimpleMatrix predictions = NeuralUtils.softmax(result);
+				    int index = getPredictedClass(predictions);
+				    if (!(node.label() instanceof CoreLabel)) {
+					throw new AssertionError("Expected CoreLabels in the nodes");
+				    }
+				    CoreLabel label = (CoreLabel) node.label();
+				    label.set(RNNCoreAnnotations.Predictions.class, predictions);
+				    label.set(RNNCoreAnnotations.PredictedClass.class, index);
+				    label.set(RNNCoreAnnotations.NodeVector.class, nodeVector);
+				    recurseUp(node, root);
+				});
   }
 
   private void processPreTerminals(Tree node, Tree root) {
@@ -610,21 +617,8 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
       classification = model.getUnaryClassification(node.label().value());
       String word = node.children()[0].label().value();
       SimpleMatrix wordVector = model.getWordVector(word);
-      final SimpleMatrix nodeVector = NeuralUtils.elementwiseApplyTanh(wordVector);
 
-      classification.mult_async(NeuralUtils.concatenateWithBias(nodeVector),
-				(SimpleMatrix result) -> {
-				    SimpleMatrix predictions = NeuralUtils.softmax(result);
-				    int index = getPredictedClass(predictions);
-				    if (!(node.label() instanceof CoreLabel)) {
-					throw new AssertionError("Expected CoreLabels in the nodes");
-				    }
-				    CoreLabel label = (CoreLabel) node.label();
-				    label.set(RNNCoreAnnotations.Predictions.class, predictions);
-				    label.set(RNNCoreAnnotations.PredictedClass.class, index);
-				    label.set(RNNCoreAnnotations.NodeVector.class, nodeVector);
-				    recurseUp(node, root);
-				});
+      fwdPropClassify(node, root, wordVector, classification);
   }
 
   private ModelDerivatives scoreDerivativesAsync(List<Tree> trainingBatch) {
