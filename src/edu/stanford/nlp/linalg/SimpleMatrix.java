@@ -217,10 +217,16 @@ public class SimpleMatrix implements java.io.Serializable {
 
     public int churn() {
 	int cnt = 0;
-	if (queue != null)
-	    cnt += churn(queue, this);
-	if (transposeQueue != null)
-	    cnt += churn(transposeQueue, this.transpose());
+	if (queue != null) {
+	    int n = churn(queue, this);
+	    //	    System.out.printf("Mult batch: %d\n", n);
+	    cnt += n;
+	}
+	if (transposeQueue != null) {
+	    int n = churn(transposeQueue, this.transpose());
+	    //	    System.out.printf("MultT batch: %d\n", n);
+	    cnt += n;
+	}
 	return cnt;
     }
 }

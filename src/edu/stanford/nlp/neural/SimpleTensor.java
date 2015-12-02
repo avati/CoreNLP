@@ -274,6 +274,7 @@ public class SimpleTensor implements Serializable {
 	    c += 1;
 	}
 
+	//	System.out.printf("Tensor batch: %d\n", requests.length);
 	return requests.length;
 
     }
