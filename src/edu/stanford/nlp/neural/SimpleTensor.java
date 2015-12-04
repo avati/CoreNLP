@@ -261,11 +261,18 @@ public class SimpleTensor implements Serializable {
 	    c += request.right.numCols();
 	}
 
+	SimpleMatrix left = new SimpleMatrix(numRows * numSlices, numCols);
+	for (int i = 0; i < numSlices; i++) {
+	    left.insertIntoThis(i * numSlices, 0, slices[i]);
+	}
+
+	SimpleMatrix mult = left.mult(right);
+
 	SimpleMatrix result = new SimpleMatrix(numSlices, ncols);
 	SimpleMatrix ones = new SimpleMatrix(1, numCols);
 	ones.set(1.0);
 	for (int i = 0; i < numSlices; i++) {
-	    result.insertIntoThis(i, 0, ones.mult(slices[i].mult(right).elementMult(right)));
+	    result.insertIntoThis(i, 0, ones.mult(mult.extractMatrix(i*numSlices, i*numSlices + numRows, 0, right.numCols()).elementMult(right)));
 	}
 
 	c = 0;
