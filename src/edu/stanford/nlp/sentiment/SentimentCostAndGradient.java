@@ -619,14 +619,11 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 				   W.mult_async(deltaFull, true, false, null,
 						(SimpleMatrix WTDelta) -> {
 						    SimpleMatrix WTDeltaNoBias = WTDelta.extractMatrix(0, deltaFull.numRows() * 2, 0, 1);
-						    int size = deltaFull.getNumElements();
-						    SimpleMatrix deltaTensor = new SimpleMatrix(size*2, 1);
 						    SimpleMatrix fullVector = NeuralUtils.concatenate(leftVector, rightVector);
-						    for (int slice = 0; slice < size; ++slice) {
-							SimpleMatrix scaledFullVector = fullVector.scale(deltaFull.get(slice));
-							deltaTensor = deltaTensor.plus(Wt.getSlice(slice).plus(Wt.getSlice(slice).transpose()).mult(scaledFullVector));
-						    }
-						    recurseDown(tree, derivatives, leftVector, rightVector, deltaTensor.plus(WTDeltaNoBias), deltaFull);
+						    Wt.SCMult_async(fullVector, deltaFull,
+								    (SimpleMatrix deltaTensor) -> {
+									recurseDown(tree, derivatives, leftVector, rightVector, deltaTensor.plus(WTDeltaNoBias), deltaFull);
+								    });
 						});
 			       } else {
 				   W.mult_async(deltaFull, true, false, null,

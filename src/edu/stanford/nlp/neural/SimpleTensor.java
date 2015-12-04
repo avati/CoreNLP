@@ -242,7 +242,7 @@ public class SimpleTensor implements Serializable {
 	queue.add(new Multiplier(in, n));
     }
 
-    public int churn() {
+    public int churnMult() {
 	if (queue == null || queue.size() == 0)
 	    return 0;
 
@@ -277,6 +277,68 @@ public class SimpleTensor implements Serializable {
 	//	System.out.printf("Tensor batch: %d\n", requests.length);
 	return requests.length;
 
+    }
+
+    class SCMultiplier {
+	public SimpleMatrix right;
+	public SimpleMatrix scale;
+	public SimpleMatrixNotifier n;
+	public int depth;
+	public SCMultiplier(SimpleMatrix right, SimpleMatrix scale, SimpleMatrixNotifier n, int depth) {
+	    this.right = right;
+	    this.scale = scale;
+	    this.n = n;
+	    this.depth = depth;
+	}
+	public SCMultiplier(SimpleMatrix right, SimpleMatrix scale, SimpleMatrixNotifier n) {
+	    this(right, scale, n, 0);
+	}
+    }
+
+    transient PriorityQueue<SCMultiplier> scmqueue;
+
+    public void SCMult_async(SimpleMatrix in, SimpleMatrix scale, SimpleMatrixNotifier n) {
+	if (scmqueue == null)
+	    scmqueue = new PriorityQueue<SCMultiplier>((SCMultiplier left, SCMultiplier right) -> left.depth - right.depth);
+	scmqueue.add(new SCMultiplier(in, scale, n));
+    }
+
+    public int churnSCMult() {
+	if (scmqueue == null || scmqueue.size() == 0)
+	    return 0;
+
+	SCMultiplier[] requests = scmqueue.toArray(new SCMultiplier[0]);
+	scmqueue.clear();
+
+	SimpleMatrix left = new SimpleMatrix(numRows, numCols);
+	for (int i = 0; i < numSlices; i++) {
+	    left = left.plus(getSlice(i).plus(getSlice(i).transpose()));
+	}
+
+	SimpleMatrix ones = new SimpleMatrix(requests[0].scale.numRows(), 1);
+	ones.set(1.0);
+
+	SimpleMatrix right = new SimpleMatrix(requests[0].right.numRows(), requests.length*requests[0].scale.numRows());
+
+	int c = 0;
+	for (SCMultiplier request : requests) {
+	    right.insertIntoThis(0, c, request.right.mult(request.scale.transpose()));
+	    c += request.scale.numRows();
+	}
+
+	SimpleMatrix result = left.mult(right);
+	c = 0;
+	for (SCMultiplier request: requests) {
+	    request.n.notify(result.extractMatrix(0, left.numRows(), c, c + request.scale.numRows()).mult(ones));
+	    c += request.scale.numRows();
+	}
+
+	//	System.out.printf("Tensor batch: %d\n", requests.length);
+	return requests.length;
+    }
+
+    public int churn() {
+	return churnMult() + churnSCMult();
     }
 
   /**
