@@ -4,6 +4,9 @@ import java.util.Random;
 import java.io.PrintStream;
 import java.util.PriorityQueue;
 
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
+
 /**
  * Contains a class that mimics org.ejml.simple.SimpleMatrix
  * and is a wrapper around org.ejml.simple.SimpleMatrix.
@@ -30,6 +33,10 @@ public class SimpleMatrix implements java.io.Serializable {
 
     public SimpleMatrix(org.ejml.simple.SimpleMatrix innerMatrix) {
 	inner = innerMatrix;
+    }
+
+    public SimpleMatrix(int nrows, int ncols, boolean rowMajor, double... data) {
+	inner = new org.ejml.simple.SimpleMatrix(nrows, ncols, rowMajor, data);
     }
 
     public void insertIntoThis(int insertRow, int insertCol, SimpleMatrix b) {
@@ -168,6 +175,14 @@ public class SimpleMatrix implements java.io.Serializable {
 	}
     }
 
+    transient INDArray left = null;
+    transient INDArray leftT = null;
+    
+    public void prepGPU() {
+	left = Nd4j.create(getMatrix().data).reshape(numRows(), numCols()); // TODO: fix reshape!! (pre and post transpose)
+	leftT = Nd4j.create(getMatrix().data).reshape(numRows(), numCols()).transpose(); // TODO: fix reshape!! (pre and post transpose)
+    }
+    
     transient PriorityQueue<Multiplier> queue;
     transient PriorityQueue<Multiplier> transposeQueue;
 
@@ -215,16 +230,55 @@ public class SimpleMatrix implements java.io.Serializable {
 	return requests.length;
     }
 
+
+    public int churnGPU(PriorityQueue<Multiplier> queue, INDArray left) {
+	if (queue.size() == 0)
+	    return 0;
+
+	Multiplier[] requests = queue.toArray(new Multiplier[0]);
+	queue.clear();
+
+	int ncols = requests.length;
+	int nrows = requests[0].right.numRows();
+
+	double[][] rightDataT = new double[requests.length][];
+	for (int i = 0; i < requests.length; i++)
+	    rightDataT[i] = requests[i].right.getMatrix().data;
+
+	INDArray right = Nd4j.create(rightDataT).transpose();
+
+	SimpleMatrix result = new SimpleMatrix(left.shape()[0], requests.length, true, left.mmul(right).data().asDouble());
+
+	for (int i = 0; i < requests.length; i++) {
+	    SimpleMatrix ans = result.extractVector(false, i);
+	    requests[i].n.notify(requests[i].addToResult == null ? ans : ans.plus(requests[i].addToResult));
+	}
+
+	return requests.length;
+    }
+
     public int churn() {
 	int cnt = 0;
+	int n = 0;
+	//	System.out.printf("queue: %d, tranposeQueue: %d\n",
+	//			  queue == null ? -1 : queue.size(),
+	//			  transposeQueue == null ? -1 : transposeQueue.size());
 	if (queue != null) {
-	    int n = churn(queue, this);
-	    //	    System.out.printf("Mult batch: %d\n", n);
+	    if (left != null) {
+		n = churnGPU(queue, left);
+	    } else {
+		n = churn(queue, this);
+	    }
+	    //System.out.printf("Mult batch: %d\n", n);
 	    cnt += n;
 	}
 	if (transposeQueue != null) {
-	    int n = churn(transposeQueue, this.transpose());
-	    //	    System.out.printf("MultT batch: %d\n", n);
+	    if (leftT != null) {
+		n = churnGPU(transposeQueue, leftT);
+	    } else {
+		n = churn(transposeQueue, this.transpose());
+	    }
+	    //System.out.printf("MultT batch: %d\n", n);
 	    cnt += n;
 	}
 	return cnt;

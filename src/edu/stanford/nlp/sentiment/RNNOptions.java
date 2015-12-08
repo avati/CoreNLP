@@ -9,6 +9,9 @@ import edu.stanford.nlp.trees.PennTreebankLanguagePack;
 import edu.stanford.nlp.trees.TreebankLanguagePack;
 import edu.stanford.nlp.util.StringUtils;
 
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
+
 public class RNNOptions implements Serializable {
 
   // TODO [2014]: This should really be a long
@@ -89,6 +92,11 @@ public class RNNOptions implements Serializable {
 
   public RNNTestOptions testOptions = new RNNTestOptions();
 
+    public boolean asyncMult = false;
+
+    public boolean useGPU = false;
+
+
   // TODO: we can remove this if we reserialize all the models
   private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
     in.defaultReadObject();
@@ -113,6 +121,8 @@ public class RNNOptions implements Serializable {
     result.append("simplifiedModel=" + simplifiedModel + "\n");
     result.append("combineClassification=" + combineClassification + "\n");
     result.append("classNames=" + StringUtils.join(classNames, ",") + "\n");
+    result.append("useGPU=" + (useGPU ? "true" : "false") + "\n");
+    result.append("asyncMult=" + (asyncMult ? "true" : "false") + "\n");
     result.append("equivalenceClasses=");
     if (equivalenceClasses != null) {
       for (int i = 0; i < equivalenceClasses.length; ++i) {
@@ -215,6 +225,15 @@ public class RNNOptions implements Serializable {
       // TODO: should we just make this null?
       equivalenceClasses = BINARY_APPROXIMATE_EQUIVALENCE_CLASSES;
       trainOptions.setOption(args, argIndex); // in case the trainOptions use binaryModel as well
+      return argIndex + 1;
+    } else if (args[argIndex].equalsIgnoreCase("-asyncMult")) {
+      asyncMult = true;
+      return argIndex + 1;
+    } else if (args[argIndex].equalsIgnoreCase("-useGPU")) {
+	INDArray nd = Nd4j.create(new float[]{1,2,3,4},new int[]{2,2});
+	nd = null;
+      useGPU = true;
+      asyncMult = true;
       return argIndex + 1;
     } else {
       int newIndex = trainOptions.setOption(args, argIndex);

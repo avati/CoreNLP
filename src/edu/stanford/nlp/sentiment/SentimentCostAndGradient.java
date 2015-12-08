@@ -208,7 +208,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 
   private ModelDerivatives scoreDerivatives(List<Tree> trainingBatch) {
     // "final" makes this as fast as having separate maps declared in this function
-    if (model.op.trainOptions.asyncMult) {
+    if (model.op.asyncMult) {
 	return scoreDerivativesAsync(trainingBatch);
     }
 
@@ -740,10 +740,20 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 	} while (cnt > 0);
     }
 
+    private void prepGPU() {
+	for (Entry<String, String, SimpleMatrix> e : model.binaryTransform) e.getValue().prepGPU();
+	for (Entry<String, String, SimpleMatrix> e : model.binaryClassification) e.getValue().prepGPU();
+	for (SimpleMatrix m : model.unaryClassification.values()) m.prepGPU();
+	for (Entry<String, String, SimpleTensor> e : model.binaryTensors) e.getValue().prepGPU();
+    }
+
     private ModelDerivatives scoreDerivativesAsync(List<Tree> trainingBatch) {
     // "final" makes this as fast as having separate maps declared in this function
     final ModelDerivatives derivatives = new ModelDerivatives(model);
 
+    System.out.println("Starting batch");
+    if (model.op.useGPU)
+	prepGPU();
 
     List<Tree> forwardPropTrees = Generics.newArrayList();
     for (Tree tree : trainingBatch) {
@@ -768,6 +778,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 	}
     }
 
+    System.out.println("Starting backprop");
     for (Tree tree : forwardPropTrees) {
 	//backpropDerivativesAndError(tree, derivatives.binaryTD, derivatives.binaryCD, derivatives.binaryTensorTD, derivatives.unaryCD, derivatives.wordVectorD);
 	SimpleMatrix delta = new SimpleMatrix(model.op.numHid, 1);
@@ -779,7 +790,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     for (Tree tree : forwardPropTrees) {
 	derivatives.error += sumError(tree);
     }
-
+    System.out.println("Finished backprop");
     return derivatives;
   }
 }

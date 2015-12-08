@@ -9,6 +9,9 @@ import java.util.NoSuchElementException;
 import edu.stanford.nlp.linalg.SimpleMatrix;
 import edu.stanford.nlp.linalg.SimpleMatrixNotifier;
 
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
+
 /**
  * This class defines a block tensor, somewhat like a three
  * dimensional matrix.  This can be created in various ways, such as
@@ -173,6 +176,8 @@ public class SimpleTensor implements Serializable {
       throw new IllegalArgumentException("Incompatible matrix size.  Has " + matrix.numRows() + " columns, tensor has " + numRows);
     }
     slices[slice] = matrix;
+    leftCache = null;
+    leftSCCache = null;
   }
 
   /**
@@ -242,12 +247,90 @@ public class SimpleTensor implements Serializable {
 	queue.add(new Multiplier(in, n));
     }
 
+    void print_shape(INDArray arr) {
+	int[] shape = arr.shape();
+
+	System.out.printf("Shape: %d", shape[0]);
+	for (int i = 1;i < shape.length; i++)
+	    System.out.printf("x%d", shape[i]);
+	System.out.printf("\n");
+	
+    }
+
+    transient INDArray leftCache = null;
+    transient INDArray ones = null;
+    transient int ones_nrows = 0;
+
+    void prepGPUMult() {
+	double[][] leftData = new double[numSlices][];
+	for (int i = 0; i < numSlices; i++)
+	    leftData[i] = slices[i].getMatrix().data;
+
+	leftCache = Nd4j.create(leftData).reshape(numSlices * numRows, numCols); // TODO: fix reshape!! (pre and post transpose)
+    }
+
+    void create_ones(int nrows) {
+	if (ones_nrows == nrows)
+	    return;
+
+	ones = Nd4j.create(new int[]{numSlices, nrows*numSlices});
+
+	for (int d = 0; d < numSlices; d++) {
+	    for (int c = 0; c < nrows; c++) {
+		ones.put(d, (d*nrows + c), 1.0); // TODO: verify this!!
+	    }
+	}
+	ones_nrows = nrows;
+    }
+    
+    public int churnMultGPU(Multiplier[] requests) {
+	int nrows = requests[0].right.numRows();
+	create_ones(nrows);
+	int ncols = requests.length;
+
+	double[][]rightDataT = new double[requests.length][];
+	for (int i = 0; i < requests.length; i++)
+	    rightDataT[i] = requests[i].right.getMatrix().data;
+
+	INDArray left = leftCache;
+	INDArray rightT = Nd4j.create(rightDataT); //.reshape(new int[]{ncols, nrows});
+	INDArray right = rightT.transpose();
+
+	//print_shape(left);
+	//print_shape(right);
+
+	INDArray rightB = right.repmat(new int[]{numSlices * nrows, ncols});
+
+	//print_shape(rightB);
+
+	INDArray hadamard_product = left.mmul(right).muli(rightB);
+	//print_shape(hadamard_product);
+	//print_shape(ones);
+	INDArray blp = ones.mmul(hadamard_product);
+
+	//print_shape(blp);
+	
+	SimpleMatrix result = new SimpleMatrix(numSlices, ncols, true, blp.data().asDouble());
+
+	int c = 0;
+	for (Multiplier request: requests) {
+	    request.n.notify(result.extractVector(false, c));
+	}
+
+	//	System.out.printf("Tensor batch: %d\n", requests.length);
+	return requests.length;
+    }
+
     public int churnMult() {
 	if (queue == null || queue.size() == 0)
 	    return 0;
 
 	Multiplier[] requests = queue.toArray(new Multiplier[0]);
 	queue.clear();
+
+	if (leftCache != null) {
+	    return churnMultGPU(requests);
+	}
 
 	int ncols = 0;
 	int nrows = requests[0].right.numRows();
@@ -310,6 +393,51 @@ public class SimpleTensor implements Serializable {
 	scmqueue.add(new SCMultiplier(in, scale, n));
     }
 
+    transient INDArray leftSCCache = null;
+    transient SimpleMatrix simpleLeftSCCache = null;
+
+    void prepGPUSCMult() {
+	double[][] leftData = new double[numSlices][];
+	for (int i = 0; i < numSlices; i++)
+	    leftData[i] = slices[i].getMatrix().data;
+
+	INDArray tmp = Nd4j.create(new int[]{numRows, numCols}, leftData);
+	//print_shape(tmp);
+	leftSCCache = tmp.addi(tmp.permute(new int[]{0, 2, 1})).reshape(new int[]{numRows, numSlices * numCols}); // TODO : fix the reshape to consider premute()
+    }
+    
+    public int churnSCMultGPU(SCMultiplier[] requests) {
+	INDArray left = leftSCCache;
+
+	double[][] rightData = new double[requests.length][];
+	double[][] scaleData = new double[requests.length][];
+	for (int i = 0; i < requests.length; i++) {
+	    rightData[i] = requests[i].right.getMatrix().data;
+	    scaleData[i] = requests[i].scale.getMatrix().data;
+	}
+
+	INDArray rightT = Nd4j.create(rightData);
+	INDArray scaleT = Nd4j.create(scaleData);
+
+	//print_shape(left);
+	//print_shape(rightT);
+	//print_shape(scaleT);
+
+	INDArray scaledRight = Nd4j.create(numCols * numSlices, requests.length);
+	for (int i = 0; i < requests.length; i++) {
+	    scaledRight.putColumn(i, rightT.getRow(i).transpose().mmul(scaleT.getRow(i)).linearView()); // TODO: check ordering
+	}
+
+	SimpleMatrix result = new SimpleMatrix(numRows, requests.length, true, left.mmul(scaledRight).data().asDouble());
+
+	for (int i = 0; i < requests.length; i++) {
+	    requests[i].n.notify(result.extractVector(false, i));
+	}
+
+	//	System.out.printf("Tensor batch: %d\n", requests.length);
+	return requests.length;
+    }
+
     public int churnSCMult() {
 	if (scmqueue == null || scmqueue.size() == 0)
 	    return 0;
@@ -317,6 +445,10 @@ public class SimpleTensor implements Serializable {
 	SCMultiplier[] requests = scmqueue.toArray(new SCMultiplier[0]);
 	scmqueue.clear();
 
+	if (requests.length > 0) {
+	    return churnSCMultGPU(requests);
+	}
+	
 	SimpleMatrix left = new SimpleMatrix(numRows, numCols);
 	for (int i = 0; i < numSlices; i++) {
 	    left = left.plus(getSlice(i).plus(getSlice(i).transpose()));
@@ -345,7 +477,12 @@ public class SimpleTensor implements Serializable {
     }
 
     public int churn() {
-	return churnMult() + churnSCMult();
+	return churnMult() + (leftCache != null ? churnSCMult() : 0);
+    }
+
+    public void prepGPU() {
+	prepGPUMult();
+	prepGPUSCMult();
     }
 
   /**
