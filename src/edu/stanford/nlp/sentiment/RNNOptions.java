@@ -9,6 +9,8 @@ import edu.stanford.nlp.trees.PennTreebankLanguagePack;
 import edu.stanford.nlp.trees.TreebankLanguagePack;
 import edu.stanford.nlp.util.StringUtils;
 
+import org.nd4j.linalg.factory.Nd4j;
+
 public class RNNOptions implements Serializable {
 
   // TODO [2014]: This should really be a long
@@ -49,6 +51,7 @@ public class RNNOptions implements Serializable {
 
   public boolean useTensors = true;
 
+  public boolean useGPU = false;
   // TODO: add an option to set this to some other language pack
   public TreebankLanguagePack langpack = new PennTreebankLanguagePack();
 
@@ -110,6 +113,7 @@ public class RNNOptions implements Serializable {
     result.append("numClasses=" + numClasses + "\n");
     result.append("lowercaseWordVectors=" + lowercaseWordVectors + "\n");
     result.append("useTensors=" + useTensors + "\n");
+    result.append("useGPU=" + useGPU + "\n");
     result.append("simplifiedModel=" + simplifiedModel + "\n");
     result.append("combineClassification=" + combineClassification + "\n");
     result.append("classNames=" + StringUtils.join(classNames, ",") + "\n");
@@ -181,6 +185,13 @@ public class RNNOptions implements Serializable {
       return argIndex + 1;
     } else if (args[argIndex].equalsIgnoreCase("-nouseTensors")) {
       useTensors = false;
+      return argIndex + 1;
+    } else if (args[argIndex].equalsIgnoreCase("-useGPU")) {
+      Nd4j.create(1); // pre initialize
+      useGPU = true;
+      return argIndex + 1;
+    } else if (args[argIndex].equalsIgnoreCase("-nouseGPU")) {
+      useGPU = false;
       return argIndex + 1;
     } else if (args[argIndex].equalsIgnoreCase("-classNames")) {
       classNames = args[argIndex + 1].split(",");

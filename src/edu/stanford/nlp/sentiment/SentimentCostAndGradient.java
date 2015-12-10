@@ -21,7 +21,7 @@ import edu.stanford.nlp.util.concurrent.ThreadsafeProcessor;
 // TODO: get rid of the word Sentiment everywhere
 public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
 
-  private final SentimentModel model;
+  protected final SentimentModel model;
   private final List<Tree> trainingBatch;
 
   public SentimentCostAndGradient(SentimentModel model, List<Tree> trainingBatch) {
@@ -35,7 +35,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     return model.totalParamSize();
   }
 
-  private static double sumError(Tree tree) {
+  protected static double sumError(Tree tree) {
     if (tree.isLeaf()) {
       return 0.0;
     } else if (tree.isPreTerminal()) {
@@ -63,7 +63,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     return argmax;
   }
 
-  private static class ModelDerivatives {
+  protected static class ModelDerivatives {
     // We use TreeMap for each of these so that they stay in a canonical sorted order
     // binaryTD stands for Transform Derivatives (see the SentimentModel)
     public final TwoDimensionalMap<String, String, SimpleMatrix> binaryTD;
@@ -204,7 +204,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     }
   }
 
-  private ModelDerivatives scoreDerivatives(List<Tree> trainingBatch) {
+  protected ModelDerivatives scoreDerivatives(List<Tree> trainingBatch) {
     // "final" makes this as fast as having separate maps declared in this function
     final ModelDerivatives derivatives = new ModelDerivatives(model);
 
@@ -525,7 +525,7 @@ public class SentimentCostAndGradient extends AbstractCachingDiffFunction {
     }
 
     SimpleMatrix predictions = NeuralUtils.softmax(classification.mult(NeuralUtils.concatenateWithBias(nodeVector)));
-
+    
     int index = getPredictedClass(predictions);
     if (!(tree.label() instanceof CoreLabel)) {
       throw new AssertionError("Expected CoreLabels in the nodes");

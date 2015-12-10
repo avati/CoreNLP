@@ -35,6 +35,51 @@ public class RNNCoreAnnotations {
   }
 
   /**
+   * Used to denote the vector (distributed representation) at a particular node.
+   */
+  public static class NodeVectorDerivative implements CoreAnnotation<SimpleMatrix> {
+    public Class<SimpleMatrix> getType() {
+      return SimpleMatrix.class;
+    }
+  }
+
+  /**
+   * Get the vector (distributed representation) at a particular node.
+   *
+   * @param tree The tree node
+   * @return The vector (distributed representation) of the given tree
+   */
+  public static SimpleMatrix getNodeVectorDerivative(Tree tree) {
+    Label label = tree.label();
+    if (!(label instanceof CoreLabel)) {
+      throw new IllegalArgumentException("CoreLabels required to get the attached node vector");
+    }
+    return ((CoreLabel) label).get(NodeVectorDerivative.class);
+  }
+
+
+  public static class InputVector implements CoreAnnotation<SimpleMatrix> {
+    public Class<SimpleMatrix> getType() {
+      return SimpleMatrix.class;
+    }
+  }
+
+  /**
+   * Get the vector (distributed representation) at a particular node.
+   *
+   * @param tree The tree node
+   * @return The vector (distributed representation) of the given tree
+   */
+  public static SimpleMatrix getInputVector(Tree tree) {
+    Label label = tree.label();
+    if (!(label instanceof CoreLabel)) {
+      throw new IllegalArgumentException("CoreLabels required to get the attached node vector");
+    }
+    return ((CoreLabel) label).get(InputVector.class);
+  }
+
+
+  /**
    * Used to denote a vector of predictions at a particular node
    */
   public static class Predictions implements CoreAnnotation<SimpleMatrix> {

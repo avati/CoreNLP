@@ -17,8 +17,14 @@ public class SentimentTraining {
   private static final NumberFormat NF = new DecimalFormat("0.00");
   private static final NumberFormat FILENAME = new DecimalFormat("0000");
 
+  static SentimentCostAndGradient getSentimentCostAndGradient(SentimentModel model, List<Tree> trainingBatch) {
+    if (model.op.useGPU)
+      return new SentimentCostAndGradientGPU(model, trainingBatch);
+    return new SentimentCostAndGradient(model, trainingBatch);
+  }
+
   public static void executeOneTrainingBatch(SentimentModel model, List<Tree> trainingBatch, double[] sumGradSquare) {
-    SentimentCostAndGradient gcFunc = new SentimentCostAndGradient(model, trainingBatch);
+    SentimentCostAndGradient gcFunc = getSentimentCostAndGradient(model, trainingBatch);
     double[] theta = model.paramsToVector();
 
     // AdaGrad
@@ -121,7 +127,7 @@ public class SentimentTraining {
   }
 
   public static boolean runGradientCheck(SentimentModel model, List<Tree> trees) {
-    SentimentCostAndGradient gcFunc = new SentimentCostAndGradient(model, trees);
+    SentimentCostAndGradient gcFunc = getSentimentCostAndGradient(model, trees);
     return gcFunc.gradientCheck(model.totalParamSize(), 50, model.paramsToVector());
   }
 
